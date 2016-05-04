@@ -8,7 +8,7 @@
 using namespace std;
 
 
-const char * testCmd = "~/ClionProjects/rabit/test/basic.rabit 3";
+const char testCmd[] = "~/ClionProjects/rabit/test/basic.rabit";
 
 void execute(char * const command[], char * const env[]);
 void mpiSubmit(int nslave, vector<string> workerArgs, map<string, string> workerEnv);
@@ -18,11 +18,24 @@ void testEnv();
 
 string hostfile;
 
+const char keepalive[] =
+        "nrep=0\n"
+        "rc=254\n"
+        "while [ $rc -eq 254 ];\n"
+        "do\n"
+            "export rabit_num_trial=$nrep\n"
+            "echo 'hellp'\n"
+            "echo 'shell'\n"
+            "rc=$?;\n"
+            "nrep=$((nrep+1));\n"
+        "done\n";
+
+char executable[50];
 
 int main(int argv, char * args[]) {
 //    execute("");
 //    system("~/ClionProjects/rabit/test/basic.rabit 2");
-    execute(testCmd);
+    execute(NULL, NULL);
     vector<string> params;
     testEnv();
 
@@ -30,6 +43,9 @@ int main(int argv, char * args[]) {
         printHelp();
         exit(0);
     }
+
+//    system(keepalive);
+//    puts(keepalive);
 
     int i = 1;
     int nworks = 1;
@@ -90,22 +106,31 @@ void printHelp() {
 }
 
 
-int execute(char * const command) {
-    pid_t cpid;
+void execute(char * const command[], char * const env[]) {
+    pid_t pid = fork();
 
-    cpid = fork();
-
-    switch (cpid) {
+    char *name[] = {
+            "/bin/bash",
+            "-c",
+            "~/ClionProjects/rabit/test/basic.rabit",
+            NULL
+    };
+//    execve(name[0], name, NULL);
+    switch (pid) {
         case -1:
-            perror("fork");
-            break;
-
-        case 0:
-            execl(testCmd, "", command, NULL); /* this is the child */
-            _exit(EXIT_FAILURE);
-
+            fprintf(stderr, "fork() failed.\n");
+        case 0: // child process
+            execve(name[0], command, env);
+            perror("execve");
+            exit(EXIT_FAILURE);
         default:
-            waitpid(cpid, NULL, 0);
+            debug_print("Create new Process with Pid %d to exec %s\n", pid, executable);
+            int status = 1;
 
+            while (!WIFEXITED(status)) {
+                waitpid(pid, &status, 0); /* Wait for the process to complete */
+            }
+
+            debug_print("Process exited with %d\n", WEXITSTATUS(status));
     }
 }

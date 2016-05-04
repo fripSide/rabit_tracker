@@ -13,6 +13,13 @@ int main(int argc, char * argv[]) {
     char * str = getenv(KEY);
 //    puts(environ[0]);
     printf("ENV: %s \n", str);
+    long long sum = 0;
+    for (int i = 0; i < 99999; ++i) {
+        for (int j = 0; j < 999; ++j) {
+            sum += i * (long long) j ;
+        }
+    }
+    printf("finished %s sum=%lld\n", argv[0], sum);
     return 0;
 }
 

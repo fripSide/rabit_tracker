@@ -6,7 +6,7 @@
 
 // exec替换当前的进程，所以要结合fork使用
 
-void excute(char * const command[], char * const env[]);
+void execute(char * const command[], char * const env[]);
 char executable[50];
 
 int
@@ -23,7 +23,8 @@ main(int argc, char *argv[])
     } else {
         stpcpy(executable, argv[1]);
     }
-
+    char d[] = "/Users/fripside/ClionProjects/rabit/test/env";
+    stpcpy(executable, d);
     newargv[0] = argv[1];
     puts(argv[1]);
     char str[20];
@@ -35,14 +36,15 @@ main(int argc, char *argv[])
         printf("Round: %s\n", val.data());
 //        execve(executable, newargv, newenviron);
 //        perror("execve");   /* execve() returns only on error */
-        excute(newargv, newenviron);
+        execute(newargv, newenviron);
 
     }
+
     exit(EXIT_FAILURE);
 
 }
 
-void excute(char * const command[], char * const env[]) {
+void execute(char * const command[], char * const env[]) {
     pid_t pid = fork();
     switch (pid) {
         case -1:
@@ -53,12 +55,13 @@ void excute(char * const command[], char * const env[]) {
             exit(EXIT_FAILURE);
         default:
             printf("Create new Process with Pid %d to exec %s\n", pid, executable);
-            int status;
+            int status = 1;
 
             while (!WIFEXITED(status)) {
                 waitpid(pid, &status, 0); /* Wait for the process to complete */
+//                printf("exit.....\n");
             }
 
-           printf("Process exited with %d\n", WEXITSTATUS(status));
+            printf("Process exited with %d\n", WEXITSTATUS(status));
     }
 }

@@ -21,7 +21,17 @@ const bool LOG_TO_CONSOLE = true;
 
 typedef void (*submitMPI)(int nslave, vector<string> workerArgs, map<string, string> workerEnv);
 
+const bool DEBUG = true;
 
+void debug_print(const char *fmt,...) {
+    if (!DEBUG)
+        return;
+    va_list ap;
+    va_start(ap, fmt);
+    vprintf(fmt,ap);
+    fflush(stdout);
+    va_end(ap);
+}
 
 void log_print(const char *fmt,...) {
     va_list ap;
@@ -33,6 +43,7 @@ void log_print(const char *fmt,...) {
 
     if (LOG_TO_CONSOLE){
         vprintf(fmt,ap);
+        debug_print(fmt, ap);
         fflush(stdout);
     }
     va_end(ap);
