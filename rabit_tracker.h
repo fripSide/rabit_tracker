@@ -7,6 +7,7 @@
 
 #include <assert.h>
 #include <set>
+#include <algorithm>
 #include "Socket.h"
 #include "cstdio"
 #include "string"
@@ -64,6 +65,10 @@ public:
         return s;
     }
 
+    void sendStr(string str) {
+        sock.SendAll(str.data(), str.length());
+    }
+
     int recvInt() {
         char str[58];
         sock.RecvAll(str, 4);
@@ -86,22 +91,21 @@ private:
 
 class SlaveEntry {
 public:
-    SlaveEntry(TCPSocket *sock, const char *sAddr): slave(sock) {
+    SlaveEntry(TCPSocket *tcpSock, const char *sAddr): sock(tcpSock) {
 //        hostIp = SockAddr:
-        int magic = slave.recvInt();
+        int magic = sock.recvInt();
         char err[50];
         host = gethostbyname(sAddr);
         sprintf(err, "invalid magic number=%d from %s", magic, host->h_name);
         Assert(magic == KMAGIC, err);
-        slave.sendInt(KMAGIC);
-        rank = slave.recvInt();
-        worldSize = slave.recvInt();
-        jobId = slave.recvStr();
-        cmd = slave.recvStr();
+        sock.sendInt(KMAGIC);
+        rank = sock.recvInt();
+        worldSize = sock.recvInt();
+        jobId = sock.recvStr();
+        cmd = sock.recvStr();
     }
 
-    int decide_rank() {
-        map<string, int> jobMap;
+    int decide_rank(map<string, int> & jobMap) {
         if (rank >= 0) {
             return rank;
         }
@@ -111,29 +115,87 @@ public:
         return -1;
     }
 
-    void assign_rank(int rank, map<int, SockAddr*> &waitConn, map<int, SockAddr*> & treeMap, map<int, int> & parentMap, map<int, SockAddr> &ringMap) {
+    vector<int> assign_rank(int rank, map<int, SlaveEntry*> &waitConn, map<int, vector<int>> treeMap, map<int, int> & parentMap, map<int, pair<int, int>> &ringMap) {
         this->rank = rank;
-        set<int> nnSet;
-        map<int, SockAddr*>::const_iterator it = treeMap.begin();
-        while (it != treeMap.end()) {
-            nnSet.insert(it->first);
-            ++it;
+        set<int> nnSet = set<int>(treeMap[rank].begin(), treeMap[rank].end());
+        int rprev = ringMap[rank].first, rnext = ringMap[rank].second;
+
+        sock.sendInt(rank);
+        sock.sendInt(parentMap[rank]);
+        sock.sendInt((int) treeMap.size());
+        sock.sendInt((int) nnSet.size());
+
+        for (set<int>::iterator iter = nnSet.begin(); iter != nnSet.end(); ++iter) {
+            sock.sendInt(*iter);
         }
 
-        slave.sendInt(rank);
-        slave.sendInt(parentMap[rank]);
+        if (rprev != -1 && rprev != rank) {
+            nnSet.insert(rprev);
+            sock.sendInt(rprev);
+        } else {
+            sock.sendInt(-1);
+        }
+
+        if (rnext != -1 && rnext != rank) {
+            nnSet.insert(rnext);
+            sock.sendInt(rnext);
+        } else {
+            sock.sendInt(-1);
+        }
+
+        while (true) {
+            int nGood = sock.recvInt();
+            set<int> goodSet = set<int>();
+            for (int i = 0; i < nGood; ++i) {
+                goodSet.insert(sock.recvInt());
+            }
+            set<int> badSet;
+            set_intersection(nnSet.begin(), nnSet.end(), goodSet.begin(), goodSet.end(), inserter(badSet, badSet.begin()));
+
+            vector<int> conSet;
+            for (set<int>::iterator iter = badSet.begin(); iter != badSet.end(); ++iter) {
+                if (waitConn[*iter] != NULL) {
+                    conSet.push_back(*iter);
+                }
+            }
+            sock.sendInt((int) conSet.size());
+            int left = ((int) badSet.size()) - (int) conSet.size();
+            sock.sendInt(left);
+
+            for (int i = 0; i < conSet.size(); ++i) {
+                sock.sendStr(waitConn[conSet[i]]->hostIp);
+                sock.sendInt(waitConn[conSet[i]]->port);
+                sock.sendInt(conSet[i]);
+            }
+            int nErr = sock.recvInt();
+            if (nErr != 0) continue;
+            port = sock.recvInt();
+            vector<int> rmSet;
+            for (int i = 0; i < conSet.size(); ++i) {
+                int r = conSet[i];
+                waitConn[r]->waitAccept -= 1;
+                if (waitConn[r]->waitAccept == 0) rmSet.push_back(r);
+            }
+            for (int i = 0; i < rmSet.size(); ++i) {
+                map<int, SlaveEntry*>::iterator iter = waitConn.find(rmSet[i]);
+                waitConn.erase(iter);
+            }
+            waitAccept = ((int) badSet.size()) - (int) conSet.size();
+            return rmSet;
+        }
     }
 
-    ExSocket slave;
+    ExSocket sock;
 
 private:
-
+    int port;
     string hostIp;
     int rank;
     int worldSize;
     hostent * host;
     string jobId;
     string cmd;
+    int waitAccept;
 };
 
 struct LinkMap {
@@ -212,10 +274,11 @@ public:
     void acceptSlaves(int nSlave) {
         map<int, int> shutDown;
         string adr("");
+        map<string, int> jobMap;
         while (shutDown.size() != nSlave) {
             TCPSocket sc = sock.Accept();
             SlaveEntry se(&sc, adr.data());
-            int rank = se.decide_rank();
+            int rank = se.decide_rank(jobMap);
             log_print("@tracker All of %d nodes getting started", nSlave, 2);
         }
     }
