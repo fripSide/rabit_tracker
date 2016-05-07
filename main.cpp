@@ -8,17 +8,20 @@
 using namespace std;
 
 
-char testCmd[] = "~/ClionProjects/rabit/test/basic.rabit";
+char testCmd[] = "~/ClionProjects/rabit/";
 
-void execute(char * command, char * const env[]);
-void mpiSubmit(int nslave, vector<string> workerArgs, map<string, string> workerEnv);
+void* execute(void *args);
+void* mpiSubmit(void *args);
+void* demoSubmit(void *args);
 void printHelp();
 
 void testEnv();
 
 string hostfile;
+string url = "127.0.0.1";
+bool runMpi = false;
 
-const char echo[] = "echo %s rabit_num_trial=$nrep;";
+const char echo[] = "echo `%s rabit_num_trial=$nrep`;";
 const char keepalive[] =
         "nrep=0\n"
         "rc=254\n"
@@ -33,12 +36,12 @@ const char keepalive[] =
             "nrep=$((nrep+1));\n"
         "done\n";
 
-char executable[50];
+char executable[100];
 
 int main(int argv, char * args[]) {
 //    execute("");
 //    system("~/ClionProjects/rabit/test/basic.rabit 2");
-    execute(testCmd, NULL);
+//    execute(testCmd, NULL);
     vector<string> params;
     testEnv();
 
@@ -47,73 +50,103 @@ int main(int argv, char * args[]) {
         exit(0);
     }
 
-//    system(keepalive);
-//    puts(keepalive);
-
-    int i = 1;
+    // 解析命令行参数，除了help中的参数，其他的都放一起传入到exe中（basic.rabit）
     int nworks = 1;
-    for (int i = 0; i < argv; ++i) {
-
-    }
-    while (i < argv) {
-        params.push_back(args[i]);
-        string str = args[i];
-        if (i + 1 < argv && (str.compare("-n") == 0 || str.compare("--nworker") == 0)) {
-            nworks = atoi(args[++i]);
-            params.push_back(args[i]);
+    bool verbose = false;
+//    strcat(executable, testCmd);
+    for (int i = 1; i < argv; ++i) {
+        printf("%s\n", args[i]);
+        if (i + 1 < argv) {
+            if (!strcmp(args[i], "-n") || !strcmp(args[i], "--nworker")) {
+                nworks = atoi(args[++i]);
+            } else if (!strcmp(args[i], "-h") || !strcmp(args[i], "--hostfile")) {
+                hostfile = args[++i];
+            } else if (!strcmp(args[i], "-v") || !strcmp(args[i], "--verbose")) {
+                verbose = atoi(args[++i]) == 1;
+            } else if (!strcmp(args[i], "-u") || !strcmp(args[i], "--url")) {
+                url = args[++i];
+            } else if (!strcmp(args[i], "-r") || !strcmp(args[i], "--run")) {
+                if (!strcmp(args[++i], "mpi")) runMpi = true;
+            } else {
+                strcat(executable, args[i]);
+                strcat(executable, " ");
+            }
+        } else {
+            strcat(executable, args[i]);
+            strcat(executable, " ");
         }
-        if (i + 1 < argv && (str.compare("-H") == 0 || str.compare("--hostfile") == 0)) {
-            hostfile = atoi(args[++i]);
-            params.push_back(args[i]);
-        }
-
-        ++i;
     }
-//    cout << "nwroks " << nworks << endl;
-    submit(nworks, params, mpiSubmit, true, "auto");
+    printf("%d %s %d %s\n", nworks, url.data(), verbose, executable);
+    submitArgs submitA(nworks);
+    submitA.cmd = executable;
+    if (runMpi) {
+        submit(&submitA, url, mpiSubmit, true, "auto");
+    } else {
+        submit(&submitA, url, demoSubmit, true, "auto");
+    }
+
     return 0;
 }
 
-void mpiSubmit(int nslave, vector<string> workerArgs, map<string, string> workerEnv) {
-    for (auto it = workerEnv.begin(); it != workerEnv.end(); ++it) {
-        workerArgs.push_back(it->first + "=" + it->second);
+void* mpiSubmit(void *args) {
+    submitArgs* submitA = reinterpret_cast<submitArgs*>(args);
+    for (auto it = submitA->workerEnv.begin(); it != submitA->workerEnv.end(); ++it) {
+        submitA->workerArgs.push_back(it->first + "=" + it->second);
     }
+    printf("mpiSubmit");
     stringstream ss;
     ss << "mpirun -n ";
-    ss << nslave;
+    ss << submitA->nSlave;
     if (!hostfile.empty()) {
         ss << " --hostfile ";
         ss << hostfile;
     }
-    for (int i = 0; i < workerArgs.size(); ++i) {
-        ss << " " << workerArgs[i];
+    for (int i = 0; i < submitA->workerArgs.size(); ++i) {
+        ss << " " << submitA->workerArgs[i];
     }
     string cmd;
     ss >> cmd;
     system(cmd.c_str());
+
+    return NULL;
+}
+
+void* demoSubmit(void *args) {
+    printf("\n run demoSubmit\n");
+    submitArgs* submitA = reinterpret_cast<submitArgs*>(args);
+    submitA->cmd = executable;
+    pthread_t pth;
+    pthread_create(&pth, NULL, execute, submitA);
+    pthread_join(pth, NULL);
+    return NULL;
 }
 
 void testEnv() {
-//    setenv("TEST", "2345", 0);
-    execl("./test/basic.rabit 2", "");
+    setenv("TEST", "2345", 0);
+//    setenv("TEST")
+//    execl("./test/basic.rabit 2", "");
     const char *value = getenv("TEST");
     printf("ENV=====> %s\n", value);
 }
 
 void printHelp() {
     cout << "Usage:" << endl;
+    cout << "Optional: -u " << "--url" << "tracker ip";
     cout << "Required: -n " << "--nworker        " << "number of worker proccess to be launched" << endl;
     cout << "Optional: -v " << "--verbose [0, 1] " << "print more messages into the console" << endl;
     cout << "Optional: -H " << "--hostfile       " << "the hostfile of mpi server" << endl;
+    cout << "Optional: -r " << "--run mpi,demo   " << "run mpi or demo (default demo)" << endl;
     cout << "Optional: command " << "[c1] [c2]   " << "command for rabit program" << endl;
 }
 
 
-void execute(char * command, char * const env[]) {
+void* execute(void *args) {
+    submitArgs* submitA = reinterpret_cast<submitArgs*>(args);
+    char const *command = submitA->cmd.c_str();
+    char *env[20] = {NULL};
     pid_t pid = fork();
     char cmd1[100], cmd2[100];
     sprintf(cmd2, echo, command);
-//    printf("");
     sprintf(cmd1, keepalive, cmd2, command);
     char *name[] = {
             (char *) "/bin/bash",
@@ -121,13 +154,13 @@ void execute(char * command, char * const env[]) {
             cmd1,
             NULL
     };
-    printf(name[2]);
+    printf(cmd1);
 //    execve(name[0], name, NULL);
     switch (pid) {
         case -1:
             fprintf(stderr, "fork() failed.\n");
         case 0: // child process
-            execve(name[0], name, env);
+            execve(name[0], name, NULL);
             perror("execve");
             exit(EXIT_FAILURE);
         default:

@@ -20,7 +20,25 @@ using namespace std;
 const bool LOG_TO_FILE = true;
 const bool LOG_TO_CONSOLE = true;
 
-typedef void (*submitMPI)(int nslave, vector<string> workerArgs, map<string, string> workerEnv);
+typedef void* (*submitFunc)(void *);
+struct submitArgs {
+    int nSlave;
+    string cmd;
+    vector<string> workerArgs;
+    map<string, string> workerEnv;
+    submitArgs(int nworks) {
+        nSlave = nworks;
+    }
+    submitArgs(int nworks, vector<string> args, map<string, string> envs) {
+        nSlave = nworks;
+        workerArgs = args;
+        workerEnv = envs;
+    }
+    string getArgs() {
+
+    }
+};
+
 
 const bool DEBUG = true;
 
@@ -115,7 +133,7 @@ public:
         return -1;
     }
 
-    vector<int> assign_rank(int rank, map<int, SlaveEntry*> &waitConn, map<int, vector<int>> treeMap, map<int, int> & parentMap, map<int, pair<int, int>> &ringMap) {
+    vector<int> assign_rank(int rank, map<int, SlaveEntry*> &waitConn, map<int, vector<int> > treeMap, map<int, int> & parentMap, map<int, pair<int, int> > &ringMap) {
         this->rank = rank;
         set<int> nnSet = set<int>(treeMap[rank].begin(), treeMap[rank].end());
         int rprev = ringMap[rank].first, rnext = ringMap[rank].second;
@@ -289,12 +307,12 @@ private:
     string host;
 };
 
-void submit(int nslave, vector<string> args, submitMPI sub, bool verbose, string hostIp = "auto") {
-    Tracker master = Tracker(false, 9091, 9099, hostIp);
-    pthread_t * td;
-    master.slaveEnvs();
-//    pthread_create(td, NULL, sub, NULL);
-    pthread_join(*td, NULL);
+void submit(submitArgs *args, string url, submitFunc sub, bool verbose, string hostIp = "auto") {
+    Tracker master = Tracker(9091, 9099, verbose, hostIp);
+    pthread_t td;
+    args->workerEnv =  master.slaveEnvs();
+    pthread_create(&td, NULL, sub, args);
+    pthread_join(td, NULL);
 }
 
 #endif //RABIT_RABIT_TRACKER_H
