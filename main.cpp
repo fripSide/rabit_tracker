@@ -8,9 +8,9 @@
 using namespace std;
 
 
-const char testCmd[] = "~/ClionProjects/rabit/test/basic.rabit";
+char testCmd[] = "~/ClionProjects/rabit/test/basic.rabit";
 
-void execute(char * const command[], char * const env[]);
+void execute(char * command, char * const env[]);
 void mpiSubmit(int nslave, vector<string> workerArgs, map<string, string> workerEnv);
 void printHelp();
 
@@ -18,6 +18,7 @@ void testEnv();
 
 string hostfile;
 
+const char echo[] = "echo %s rabit_num_trial=$nrep;";
 const char keepalive[] =
         "nrep=0\n"
         "rc=254\n"
@@ -26,6 +27,8 @@ const char keepalive[] =
             "export rabit_num_trial=$nrep\n"
             "echo 'hellp'\n"
             "echo 'shell'\n"
+            "%s\n"
+            "%s\n"
             "rc=$?;\n"
             "nrep=$((nrep+1));\n"
         "done\n";
@@ -35,7 +38,7 @@ char executable[50];
 int main(int argv, char * args[]) {
 //    execute("");
 //    system("~/ClionProjects/rabit/test/basic.rabit 2");
-    execute(NULL, NULL);
+    execute(testCmd, NULL);
     vector<string> params;
     testEnv();
 
@@ -106,21 +109,25 @@ void printHelp() {
 }
 
 
-void execute(char * const command[], char * const env[]) {
+void execute(char * command, char * const env[]) {
     pid_t pid = fork();
-
+    char cmd1[100], cmd2[100];
+    sprintf(cmd2, echo, command);
+//    printf("");
+    sprintf(cmd1, keepalive, cmd2, command);
     char *name[] = {
-            "/bin/bash",
-            "-c",
-            "~/ClionProjects/rabit/test/basic.rabit",
+            (char *) "/bin/bash",
+            (char *) "-c",
+            cmd1,
             NULL
     };
+    printf(name[2]);
 //    execve(name[0], name, NULL);
     switch (pid) {
         case -1:
             fprintf(stderr, "fork() failed.\n");
         case 0: // child process
-            execve(name[0], command, env);
+            execve(name[0], name, env);
             perror("execve");
             exit(EXIT_FAILURE);
         default:

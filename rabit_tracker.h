@@ -209,10 +209,9 @@ public:
     Tracker(int port = 9091, int port_end = 9999, bool verbose = true, const string &hostIp = "auto") {
         sock = TCPSocket();
         sock.Create(AF_INET);
-        sock.TryBindHost(port, port_end);
+        this->port = sock.TryBindHost(port, port_end);
         sock.Listen(128);
         this->hostIp = hostIp;
-        this->port = port;
         if (hostIp.compare("auto") == 0) {
             this->hostIp = "ip";
             log_print("start listen on\n");
