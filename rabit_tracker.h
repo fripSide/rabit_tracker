@@ -341,11 +341,11 @@ public:
         map<int, pair<int, int> > ringMap;
         int nSlave = (int) linkMap.treeMap.size();
         vector<int> rlst = findShareRing(linkMap, 0);
-        printf("ASSET %d=%d", rlst.size(), linkMap.treeMap.size());
+        printf("ASSET %d=%d", (int) rlst.size(), (int) linkMap.treeMap.size());
         for (int i = 0; i < nSlave; ++i) {
             int rprev = (i + nSlave - 1) % nSlave;
             int rnext = (i + 1) % nSlave;
-            ringMap[i] = pair<int, int>(rprev, rnext);
+            ringMap[rlst[i]] = pair<int, int>(rlst[rprev], rlst[rnext]);
         }
         return ringMap;
     }

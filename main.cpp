@@ -17,6 +17,7 @@ void printHelp();
 
 void testEnv();
 
+int nworks = 1;
 string hostfile;
 string url = "127.0.0.1";
 bool runMpi = false;
@@ -50,7 +51,6 @@ int main(int argv, char * args[]) {
     }
 
     // 解析命令行参数，除了help中的参数，其他的都放一起传入到exe中（basic.rabit）
-    int nworks = 1;
     bool verbose = false;
 //    strcat(executable, testCmd);
     for (int i = 1; i < argv; ++i) {
@@ -90,7 +90,13 @@ int main(int argv, char * args[]) {
 void* mpiSubmit(void *args) {
     printf("\n run mpiSubmit\n");
     submitArgs* submitA = reinterpret_cast<submitArgs*>(args);
-    submitA->cmd = executable;
+    char cmd[500];
+    if (hostfile.empty()) {
+        sprintf(cmd, "mpirun -n %d %s", nworks, executable);
+    } else {
+        sprintf(cmd, "mpirun -n %d --hostfile %s %s", nworks, hostfile.data(), executable);
+    }
+    submitA->cmd = cmd;
     pthread_t pth;
     printf("start run... %s\n", submitA->cmd.data());
     pthread_create(&pth, NULL, execute, submitA);
