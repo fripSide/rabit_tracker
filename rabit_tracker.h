@@ -24,6 +24,7 @@ typedef void* (*submitFunc)(void *);
 struct submitArgs {
     int nSlave;
     string cmd;
+    bool verbose;
     vector<string> workerArgs;
     map<string, string> workerEnv;
     submitArgs(int nworks) {
@@ -35,7 +36,16 @@ struct submitArgs {
         workerEnv = envs;
     }
     string getArgs() {
-
+        string str = "";
+        for (int i = 0; i < workerArgs.size(); ++i) {
+            str += " " + workerArgs[i];
+        }
+        map<string, string>::iterator iter = workerEnv.begin();
+        while (iter != workerEnv.end()) {
+            str += " " + iter->first + "=" + iter->second;
+            ++iter;
+        }
+        return str;
     }
 };
 
@@ -224,17 +234,59 @@ struct LinkMap {
 
 class Tracker {
 public:
-    Tracker(int port = 9091, int port_end = 9999, bool verbose = true, const string &hostIp = "auto") {
-        sock = TCPSocket();
-        sock.Create(AF_INET);
-        this->port = sock.TryBindHost(port, port_end);
-        sock.Listen(128);
-        this->hostIp = hostIp;
+    Tracker(string url, int start_port = 9091, int end_port = 9999, bool verbose = true, const string &hostIp = "auto"): port(-1) {
+//        sock = TCPSocket();
+//        TCPSocket tcpSocket;
+//        tcpSocket.Create();
+//        printf("CREATE %d\n", tcpSocket.sockfd);
+//        int port = -1;
+////        string url("192.168.57.1");
+////    SockAddr addr(url.data(), 9099);
+//        hostent *hp = gethostbyname(url.data());
+//        printf("%s %s\n", hp->h_addr_list[0], hp->h_name);
+////    printf("%s %d\n", addr.AddrStr().data(), addr.port());
+////    tcpSocket.Bind(addr);
+//        for (int p = 9090; p < 9999; ++p) {
+//            SockAddr addr = SockAddr(url.data(), p);
+//            if (bind(tcpSocket.sockfd, reinterpret_cast<const sockaddr*>(&addr.addr),
+//                     sizeof(addr.addr)) == 0) {
+//                port = p;
+//                break;
+//            }
+//            printf("TryBind %s:%d Failed\n", addr.AddrStr().data(), addr.port());
+//        }
+//        if (port == -1) {
+//            printf("Bind Port failed %s:%d", url.data(), port);
+//            exit(-1);
+//        }
+
+//        printf("start listen: %d\n", port);
+        sock.Create();
+        port = sock.TryBindHost(start_port, end_port);
+        printf("Bind Port %d\n", port);
+//        printf("CREATE %d\n", sock.sockfd);
+//        for (int p = start_port; p < end_port; ++p) {
+//            SockAddr addr(url.data(), p);
+//            if (bind(sock.sockfd, reinterpret_cast<sockaddr*>(&addr.addr),
+//                     sizeof(addr.addr)) == 0) {
+//                printf("Bind Port Success %s:%d\n", url.data(), p);
+//                port = p;
+//                break;
+//            } else {
+//                printf("Bind Port Failed %s:%d\n", addr.AddrStr().data(), addr.port());
+//            }
+//        }
+//        if (port == -1) {
+//            printf("Bind Port failed %s:%d\n", url.data(), port);
+//            exit(-1);
+//        }
+        sock.Listen();
+        this->hostIp = url;
         if (hostIp.compare("auto") == 0) {
-            this->hostIp = "ip";
-            log_print("start listen on\n");
+            this->hostIp = url;
+            printf("start listen on: %d\n", port);
         }
-        log_print("start listen on %s:%d", SockAddr::GetHostName().c_str(), port);
+        printf("start listen on %s:%d", url.data(), port);
     }
 
     ~Tracker() {
@@ -251,7 +303,9 @@ public:
             host = hostIp;
         }
         t["rabit_tracker_uri"] = host;
-        t["rabit_tracker_port"] = port;
+        char p[50];
+        sprintf(p, "%d", port);
+        t["rabit_tracker_port"] = p;
         return t;
     }
 
@@ -272,7 +326,7 @@ public:
 
     map<int, pair<int, int> > getRing(LinkMap &linkMap) {
         map<int, pair<int, int> > ringMap;
-        int nSlave = linkMap.treeMap.size();
+        int nSlave = (int) linkMap.treeMap.size();
         for (int i = 0; i < nSlave; ++i) {
             int rprev = (i + nSlave - 1) % nSlave;
             int rnext = (i + 1) % nSlave;
@@ -308,9 +362,11 @@ private:
 };
 
 void submit(submitArgs *args, string url, submitFunc sub, bool verbose, string hostIp = "auto") {
-    Tracker master = Tracker(9091, 9099, verbose, hostIp);
+    Tracker master(url, 9091, 9999, verbose, hostIp);
+    printf("Submit...");
     pthread_t td;
     args->workerEnv =  master.slaveEnvs();
+    args->workerEnv["env-key"] = "test-key";
     pthread_create(&td, NULL, sub, args);
     pthread_join(td, NULL);
 }

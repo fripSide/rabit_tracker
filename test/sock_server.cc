@@ -38,10 +38,30 @@ int recvStr(TCPSocket &sock, char *s) {
 void testSocket() {
     puts("startSocket");
     TCPSocket tcpSocket;
-    tcpSocket.Create(AF_INET);
-//    SockAddr addr = SockAddr("192.168.57.1", 9091);
+    tcpSocket.Create();
+    printf("CREATE %d\n", tcpSocket.sockfd);
+    int port = -1;
+    string url("192.168.57.1");
+//    SockAddr addr(url.data(), 9099);
+    hostent *hp = gethostbyname(url.data());
+    printf("%s %s\n", hp->h_addr_list[0], hp->h_name);
+//    printf("%s %d\n", addr.AddrStr().data(), addr.port());
 //    tcpSocket.Bind(addr);
-    int port = tcpSocket.TryBindHost(9001, 9099);
+    for (int p = 9090; p < 9999; ++p) {
+        SockAddr addr = SockAddr(url.data(), p);
+        if (bind(tcpSocket.sockfd, reinterpret_cast<const sockaddr*>(&addr.addr),
+                 sizeof(addr.addr)) == 0) {
+            port = p;
+            break;
+        }
+        printf("TryBind %s:%d Failed\n", addr.AddrStr().data(), addr.port());
+    }
+    if (port == -1) {
+        printf("Bind Port failed %s:%d", url.data(), port);
+        exit(-1);
+    }
+
+//    int port = tcpSocket.TryBindHost(9001, 9099);
     printf("start listen: %d\n", port);
 //    tcpSocket.SetNonBlock(true);
     tcpSocket.Listen();

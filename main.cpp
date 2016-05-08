@@ -28,8 +28,8 @@ const char keepalive[] =
         "while [ $rc -eq 254 ];\n"
         "do\n"
             "export rabit_num_trial=$nrep\n"
-            "echo 'hellp'\n"
-            "echo 'shell'\n"
+            //"echo 'hellp'\n"
+            //"echo 'shell'\n"
             "%s\n"
             "%s\n"
             "rc=$?;\n"
@@ -42,8 +42,7 @@ int main(int argv, char * args[]) {
 //    execute("");
 //    system("~/ClionProjects/rabit/test/basic.rabit 2");
 //    execute(testCmd, NULL);
-    vector<string> params;
-    testEnv();
+//    testEnv();
 
     if (argv < 2) {
         printHelp();
@@ -55,7 +54,7 @@ int main(int argv, char * args[]) {
     bool verbose = false;
 //    strcat(executable, testCmd);
     for (int i = 1; i < argv; ++i) {
-        printf("%s\n", args[i]);
+//        printf("%s\n", args[i]);
         if (i + 1 < argv) {
             if (!strcmp(args[i], "-n") || !strcmp(args[i], "--nworker")) {
                 nworks = atoi(args[++i]);
@@ -79,43 +78,40 @@ int main(int argv, char * args[]) {
     printf("%d %s %d %s\n", nworks, url.data(), verbose, executable);
     submitArgs submitA(nworks);
     submitA.cmd = executable;
+    submitA.verbose = verbose;
     if (runMpi) {
         submit(&submitA, url, mpiSubmit, true, "auto");
     } else {
         submit(&submitA, url, demoSubmit, true, "auto");
     }
+//    Tracker tracker(url, 9091, 9999, false, "ip");;
 
     return 0;
 }
 
 void* mpiSubmit(void *args) {
+    printf("\n run mpiSubmit\n");
     submitArgs* submitA = reinterpret_cast<submitArgs*>(args);
-    for (auto it = submitA->workerEnv.begin(); it != submitA->workerEnv.end(); ++it) {
-        submitA->workerArgs.push_back(it->first + "=" + it->second);
-    }
-    printf("mpiSubmit");
-    stringstream ss;
-    ss << "mpirun -n ";
-    ss << submitA->nSlave;
-    if (!hostfile.empty()) {
-        ss << " --hostfile ";
-        ss << hostfile;
-    }
-    for (int i = 0; i < submitA->workerArgs.size(); ++i) {
-        ss << " " << submitA->workerArgs[i];
-    }
-    string cmd;
-    ss >> cmd;
-    system(cmd.c_str());
-
+    submitA->cmd = executable;
+    pthread_t pth;
+    printf("start run... %s\n", submitA->cmd.data());
+    pthread_create(&pth, NULL, execute, submitA);
     return NULL;
 }
 
 void* demoSubmit(void *args) {
     printf("\n run demoSubmit\n");
+    char cmd1[200], cmd2[200];
     submitArgs* submitA = reinterpret_cast<submitArgs*>(args);
+    strcat(executable, submitA->getArgs().c_str());
     submitA->cmd = executable;
+    printf("==========EXE:%s\n", executable);
+    char const *command = executable;
+    sprintf(cmd2, echo, command);
+    sprintf(cmd1, keepalive, cmd2, command);
+    submitA->cmd = cmd1;
     pthread_t pth;
+    printf("start run... %s\n", submitA->cmd.data());
     pthread_create(&pth, NULL, execute, submitA);
     pthread_join(pth, NULL);
     return NULL;
@@ -142,19 +138,17 @@ void printHelp() {
 
 void* execute(void *args) {
     submitArgs* submitA = reinterpret_cast<submitArgs*>(args);
-    char const *command = submitA->cmd.c_str();
-    char *env[20] = {NULL};
+
     pid_t pid = fork();
-    char cmd1[100], cmd2[100];
-    sprintf(cmd2, echo, command);
-    sprintf(cmd1, keepalive, cmd2, command);
+
     char *name[] = {
             (char *) "/bin/bash",
             (char *) "-c",
-            cmd1,
+            (char *) submitA->cmd.data(),
             NULL
     };
-    printf(cmd1);
+
+//    printf("Run CMD: %s\n", submitA->cmd.data());
 //    execve(name[0], name, NULL);
     switch (pid) {
         case -1:
@@ -173,4 +167,5 @@ void* execute(void *args) {
 
             debug_print("Process exited with %d\n", WEXITSTATUS(status));
     }
+    return NULL;
 }
