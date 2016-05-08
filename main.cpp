@@ -36,7 +36,7 @@ const char keepalive[] =
             "nrep=$((nrep+1));\n"
         "done\n";
 
-char executable[100];
+char executable[200];
 
 int main(int argv, char * args[]) {
 //    execute("");
@@ -84,8 +84,6 @@ int main(int argv, char * args[]) {
     } else {
         submit(&submitA, url, demoSubmit, true, "auto");
     }
-//    Tracker tracker(url, 9091, 9999, false, "ip");;
-
     return 0;
 }
 

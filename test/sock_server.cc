@@ -47,8 +47,9 @@ void testSocket() {
     printf("%s %s\n", hp->h_addr_list[0], hp->h_name);
 //    printf("%s %d\n", addr.AddrStr().data(), addr.port());
 //    tcpSocket.Bind(addr);
+    SockAddr addr;
     for (int p = 9090; p < 9999; ++p) {
-        SockAddr addr = SockAddr(url.data(), p);
+        addr = SockAddr(url.data(), p);
         if (bind(tcpSocket.sockfd, reinterpret_cast<const sockaddr*>(&addr.addr),
                  sizeof(addr.addr)) == 0) {
             port = p;
@@ -62,13 +63,14 @@ void testSocket() {
     }
 
 //    int port = tcpSocket.TryBindHost(9001, 9099);
-    printf("start listen: %d\n", port);
+    printf("start listen: %s:%d\n", addr.AddrStr().data(), port);
 //    tcpSocket.SetNonBlock(true);
     tcpSocket.Listen();
     puts("start accept...");
 //    string host = SockAddr::GetHostName();
 //    printf("start sever: %s", host.c_str());
     TCPSocket client = tcpSocket.Accept();
+    printf("RECV CLIENT: %s:%d\n", client.sAddr.AddrStr().data(), client.sAddr.port());
     int n = 5;
     char sendBuf[100], recvBuf[100];
     while (n--) {

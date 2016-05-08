@@ -13,6 +13,7 @@
 #include "string"
 #include "pthread.h"
 #include "map"
+#include "time.h"
 
 using namespace rabit::utils;
 using namespace std;
@@ -83,48 +84,50 @@ const int KMAGIC = 0xff99;
 
 class ExSocket {
 public:
-    ExSocket(TCPSocket *s): sock(*s) {
+    ExSocket(TCPSocket s): sock(s) {
     }
 
-    size_t sendInt(int t) {
-        char str[8];
-        sprintf(str, "%d", t);
-        size_t s = sock.SendAll(str, 4);
-        return s;
+    int sendInt(int t) {
+        size_t s = sock.SendAll(&t, sizeof t);
+        return (int) s;
     }
 
-    void sendStr(string str) {
-        sock.SendAll(str.data(), str.length());
+    int sendStr(string str) {
+        char const * s = str.c_str();
+        size_t t = strlen(s);
+        sendInt((int) t);
+        sock.SendAll(s, t);
+        return (int) t;
     }
 
     int recvInt() {
-        char str[58];
-        sock.RecvAll(str, 4);
-        int t = atoi(str);
+        int t;
+        sock.RecvAll(&t, sizeof t);
         return t;
     }
 
-
     string recvStr() {
-        int len = recvInt();
-        string str;
-        size_t t = sock.RecvAll(&(str[0]), len);
-        return str;
+        int t = recvInt();
+        char s[50];
+        sock.RecvAll(s, t);
+        s[t] = 0;
+        return string(s);
     }
 
 private:
-    TCPSocket &sock;
+    TCPSocket sock;
 
 };
 
 class SlaveEntry {
 public:
-    SlaveEntry(TCPSocket *tcpSock, const char *sAddr): sock(tcpSock) {
+    SlaveEntry(TCPSocket tcpSock): sock(tcpSock) {
 //        hostIp = SockAddr:
         int magic = sock.recvInt();
         char err[50];
-        host = gethostbyname(sAddr);
-        sprintf(err, "invalid magic number=%d from %s", magic, host->h_name);
+        host = tcpSock.sAddr.AddrStr();
+        port = tcpSock.sAddr.port();
+        sprintf(err, "invalid magic number=%d from %s:%d", magic, host.data(), port);
         Assert(magic == KMAGIC, err);
         sock.sendInt(KMAGIC);
         rank = sock.recvInt();
@@ -143,7 +146,7 @@ public:
         return -1;
     }
 
-    vector<int> assign_rank(int rank, map<int, SlaveEntry*> &waitConn, map<int, vector<int> > treeMap, map<int, int> & parentMap, map<int, pair<int, int> > &ringMap) {
+    vector<int> assign_rank(int rank, map<int, SlaveEntry*> &waitConn, map<int, vector<int> > &treeMap, map<int, int> & parentMap, map<int, pair<int, int> > &ringMap) {
         this->rank = rank;
         set<int> nnSet = set<int>(treeMap[rank].begin(), treeMap[rank].end());
         int rprev = ringMap[rank].first, rnext = ringMap[rank].second;
@@ -207,6 +210,7 @@ public:
             for (int i = 0; i < rmSet.size(); ++i) {
                 map<int, SlaveEntry*>::iterator iter = waitConn.find(rmSet[i]);
                 waitConn.erase(iter);
+                delete iter->second;
             }
             waitAccept = ((int) badSet.size()) - (int) conSet.size();
             return rmSet;
@@ -215,12 +219,12 @@ public:
 
     ExSocket sock;
 
-private:
+public:
     int port;
     string hostIp;
     int rank;
     int worldSize;
-    hostent * host;
+    string host;
     string jobId;
     string cmd;
     int waitAccept;
@@ -229,79 +233,54 @@ private:
 struct LinkMap {
     map<int, vector<int> > treeMap;
     map<int, pair<int, int> > ringMap;
-
+    map<int, int> parentMap;
 };
+
+class map;
+
+bool cmpSlave(SlaveEntry *s1, SlaveEntry *s2) { //<
+    return s1->host.compare(s2->host) < 0;
+}
 
 class Tracker {
 public:
     Tracker(string url, int start_port = 9091, int end_port = 9999, bool verbose = true, const string &hostIp = "auto"): port(-1) {
-//        sock = TCPSocket();
-//        TCPSocket tcpSocket;
-//        tcpSocket.Create();
-//        printf("CREATE %d\n", tcpSocket.sockfd);
-//        int port = -1;
-////        string url("192.168.57.1");
-////    SockAddr addr(url.data(), 9099);
-//        hostent *hp = gethostbyname(url.data());
-//        printf("%s %s\n", hp->h_addr_list[0], hp->h_name);
-////    printf("%s %d\n", addr.AddrStr().data(), addr.port());
-////    tcpSocket.Bind(addr);
-//        for (int p = 9090; p < 9999; ++p) {
-//            SockAddr addr = SockAddr(url.data(), p);
-//            if (bind(tcpSocket.sockfd, reinterpret_cast<const sockaddr*>(&addr.addr),
-//                     sizeof(addr.addr)) == 0) {
-//                port = p;
-//                break;
-//            }
-//            printf("TryBind %s:%d Failed\n", addr.AddrStr().data(), addr.port());
-//        }
-//        if (port == -1) {
-//            printf("Bind Port failed %s:%d", url.data(), port);
-//            exit(-1);
-//        }
-
-//        printf("start listen: %d\n", port);
+        TCPSocket sock;
         sock.Create();
-        port = sock.TryBindHost(start_port, end_port);
-        printf("Bind Port %d\n", port);
-//        printf("CREATE %d\n", sock.sockfd);
-//        for (int p = start_port; p < end_port; ++p) {
-//            SockAddr addr(url.data(), p);
-//            if (bind(sock.sockfd, reinterpret_cast<sockaddr*>(&addr.addr),
-//                     sizeof(addr.addr)) == 0) {
-//                printf("Bind Port Success %s:%d\n", url.data(), p);
-//                port = p;
-//                break;
-//            } else {
-//                printf("Bind Port Failed %s:%d\n", addr.AddrStr().data(), addr.port());
-//            }
-//        }
-//        if (port == -1) {
-//            printf("Bind Port failed %s:%d\n", url.data(), port);
-//            exit(-1);
-//        }
-        sock.Listen();
-        this->hostIp = url;
-        if (hostIp.compare("auto") == 0) {
-            this->hostIp = url;
-            printf("start listen on: %d\n", port);
+        sockfd = sock.sockfd;
+
+        SockAddr addr;
+        for (int p = start_port; p < end_port; ++p) {
+            addr = SockAddr(url.data(), p);
+            if (::bind(sockfd, reinterpret_cast<const sockaddr*>(&addr.addr),
+                       sizeof(addr.addr)) == 0) {
+                port = p;
+                break;
+            } else {
+                printf("Failed to Bind %s:%d\n", addr.AddrStr().data(), addr.port());
+            }
         }
-        printf("start listen on %s:%d", url.data(), port);
+        if (port == -1) {
+            sock.GetSockError();
+            sock.GetLastError();
+            printf("Failed to Bind %s:%d\n", addr.AddrStr().data(), addr.port());
+            exit(-1);
+        }
+
+        sock.Listen();
+        printf("Start to Listen %s:%d\n", addr.AddrStr().data(), addr.port());
+        this->hostIp = hostIp;
+        host = addr.AddrStr();
     }
 
     ~Tracker() {
+        TCPSocket sock(sockfd);
         sock.Close();
     }
 
     map<string, string> slaveEnvs() {
         map<string, string> t;
-        if (hostIp.compare("dns") == 0) {
-            host = SockAddr::GetHostName().c_str();
-        } else if (hostIp.compare("ip") == 0) {
-            host = SockAddr::GetHostName().c_str();
-        } else {
-            host = hostIp;
-        }
+        printf("%s %s\n", hostIp.data(), host.data());
         t["rabit_tracker_uri"] = host;
         char p[50];
         sprintf(p, "%d", port);
@@ -324,9 +303,45 @@ public:
         return nes;
     }
 
+    LinkMap getTree(int nSlave) {
+        LinkMap linkMap;
+        for (int i = 0; i < nSlave; ++i) {
+            linkMap.treeMap[i] = getNeighbor(i, nSlave);
+            linkMap.parentMap[i] = (i + 1) / 2 - 1;
+        }
+        return linkMap;
+    }
+
+    vector<int> findShareRing(LinkMap &linkMap, int r) {
+        set<int> nSet(linkMap.treeMap[r].begin(), linkMap.treeMap[r].end());
+        set<int> parentSet;
+        parentSet.insert(linkMap.parentMap[r]);
+        set<int> cSet;
+        set_difference(nSet.begin(), nSet.end(), parentSet.begin(), parentSet.end(), inserter(cSet, cSet.begin()));
+        vector<int> rlst;
+        if (cSet.size() == 0) {
+            rlst.push_back(r);
+            return rlst;
+        }
+        int cnt = 0;
+        set<int>::iterator iter = cSet.begin();
+        while (iter != cSet.end()) {
+            vector<int> vlst = findShareRing(linkMap, *iter);
+            cnt += 1;
+            if (cnt == cSet.size()) {
+                reverse(vlst.begin(), vlst.end());
+            }
+            rlst.insert(rlst.end(), vlst.begin(), vlst.end());
+        }
+
+        return rlst;
+    }
+
     map<int, pair<int, int> > getRing(LinkMap &linkMap) {
         map<int, pair<int, int> > ringMap;
         int nSlave = (int) linkMap.treeMap.size();
+        vector<int> rlst = findShareRing(linkMap, 0);
+        printf("ASSET %d=%d", rlst.size(), linkMap.treeMap.size());
         for (int i = 0; i < nSlave; ++i) {
             int rprev = (i + nSlave - 1) % nSlave;
             int rnext = (i + 1) % nSlave;
@@ -336,29 +351,117 @@ public:
     }
 
     LinkMap getLinkMap(int nSlave) {
-        LinkMap linkMap;
+        LinkMap linkMap = getTree(nSlave);
         linkMap.ringMap = getRing(linkMap);
+        map<int, int> rmap;
+        int k = 0;
+        for (int i = 0; i < nSlave - 1; ++i) {
+            k = linkMap.ringMap[k].second;
+            rmap[k] = i + 1;
+        }
 
-        return linkMap;
+        LinkMap lMap;
+        for (map<int, pair<int, int> >::iterator rit = linkMap.ringMap.begin(); rit != linkMap.ringMap.end(); ++rit) {
+            pair<int, int> &val = rit->second;
+            lMap.ringMap[rmap[rit->first]] = pair<int, int>(rmap[val.first], rmap[val.second]);
+        }
+        for (map<int, vector<int> >::iterator tit = linkMap.treeMap.begin(); tit != linkMap.treeMap.end(); ++tit) {
+            vector<int> &val = tit->second;
+            for (int i = 0; i < val.size(); ++i) {
+                lMap.treeMap[rmap[tit->first]].push_back(rmap[i]);
+            }
+        }
+        for (map<int, int>::iterator pit = linkMap.parentMap.begin(); pit != linkMap.parentMap.end(); ++pit) {
+            if (pit->first != 0) {
+                lMap.parentMap[rmap[pit->first]] = rmap[pit->second];
+            } else {
+                lMap.parentMap[rmap[pit->first]] = -1;
+            }
+        }
+
+        return lMap;
     }
 
     void acceptSlaves(int nSlave) {
-        map<int, int> shutDown;
+        map<int, SlaveEntry*> shutDown;
         string adr("");
         map<string, int> jobMap;
+        TCPSocket sock(sockfd);
+        map<int, vector<int> > treeMap;
+        map<int, int> parentMap;
+        map<int, pair<int, int> > ringMap;
+        vector<int> todoNodes;
+        vector<SlaveEntry*> pending;
+        map<int, SlaveEntry*> waitConn;
         while (shutDown.size() != nSlave) {
+            printf("Start Accept...\n");
             TCPSocket sc = sock.Accept();
-            SlaveEntry se(&sc, adr.data());
-            int rank = se.decide_rank(jobMap);
-            log_print("@tracker All of %d nodes getting started", nSlave, 2);
+            SlaveEntry* se = new SlaveEntry(sc);
+            if (se->cmd.compare("print") == 0) {
+                string  msg = se->sock.recvStr();
+                log_print("Message from %s:%d : %s", se->host.data(), se->port, msg.data());
+            } else if (se->cmd.compare("shutdown") == 0) {
+                shutDown[se->rank] = se;
+            }
+            log_print("ASSERT: CMD Should be [start] or [recover]: %s", se->cmd.data());
+
+            if (treeMap.size() == 0) {
+                log_print("ASSERT: CMD Should be [start]: %s", se->cmd.data());
+                if (se->worldSize > 0) {
+                    nSlave = se->worldSize;
+                }
+                LinkMap linkMap = getLinkMap(nSlave);
+                treeMap = linkMap.treeMap;
+                for (int i = 0; i < nSlave; ++i) todoNodes.push_back(i);
+            } else {
+                printf("ASSERT: World SIZE: %d == nSlave: %d", se->worldSize, nSlave);
+            }
+
+            if (se->cmd.compare("recover") == 0) {
+                printf("ASSERT: rank = %d > 0", se->rank);
+            }
+            int rank = se->decide_rank(jobMap);
+            if (rank == -1) {
+                pending.push_back(se);
+                if (pending.size() == todoNodes.size()) {
+                    sort(pending.begin(), pending.end(), cmpSlave);
+                }
+                for (int i = 0; i < pending.size(); ++i) {
+                    int rank = todoNodes.back();
+                    todoNodes.pop_back();
+                    if (se->jobId.compare("NULL") != 0) {
+                        jobMap[se->jobId] = rank;
+                    }
+                    se->assign_rank(rank, waitConn, treeMap, parentMap, ringMap);
+                    if (se->waitAccept > 0) {
+                        waitConn[rank] = se;
+                    }
+                    log_print("Recieve %s signal from %s; assign rank %d", se->cmd.data(), se->host.data(), se->rank);
+                }
+                if (todoNodes.size() == 0) {
+                    log_print("@tracker All of %d nodes getting started", nSlave);
+                    startTime = clock();
+                }
+            } else {
+                se->assign_rank(rank, waitConn, treeMap, parentMap, ringMap);
+                log_print("Recieve %s signal from %d", se->cmd.data(), se->rank);
+                if (se->waitAccept > 0) {
+                    waitConn[rank] = se;
+                }
+            }
         }
+        log_print("@tracker All nodes finishes job");
+        clock_t endTime = clock();
+        double spend = (endTime - startTime) / (double) CLOCKS_PER_SEC;
+        log_print("@tracker %.3f secs between node start and job finish", spend);
     }
 
 private:
-    TCPSocket sock;
+    SOCKET sockfd;
     string hostIp;
     int port;
     string host;
+    clock_t startTime;
 };
 
 void submit(submitArgs *args, string url, submitFunc sub, bool verbose, string hostIp = "auto") {
@@ -368,6 +471,7 @@ void submit(submitArgs *args, string url, submitFunc sub, bool verbose, string h
     args->workerEnv =  master.slaveEnvs();
     args->workerEnv["env-key"] = "test-key";
     pthread_create(&td, NULL, sub, args);
+    master.acceptSlaves(4);
     pthread_join(td, NULL);
 }
 

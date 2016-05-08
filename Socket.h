@@ -288,11 +288,15 @@ namespace rabit {
             }
             /*! \brief get a new connection */
             TCPSocket Accept(void) {
-                SOCKET newfd = accept(sockfd, NULL, NULL);
+                sockaddr_in addr;
+                socklen_t t = sizeof addr;
+                SOCKET newfd = accept(sockfd, (sockaddr *) &addr, &t);
                 if (newfd == INVALID_SOCKET) {
                     Socket::Error("Accept");
                 }
-                return TCPSocket(newfd);
+                TCPSocket tcpSocket(newfd);
+                tcpSocket.sAddr.addr = addr;
+                return tcpSocket;
             }
             /*!
              * \brief decide whether the socket is at OOB mark
@@ -412,6 +416,9 @@ namespace rabit {
                                   "error during send SendStr");
                 }
             }
+
+        public:
+            SockAddr sAddr;
         };
 
 /*! \brief helper data structure to perform select */

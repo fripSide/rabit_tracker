@@ -36,8 +36,8 @@ int recvStr(TCPSocket &sock, char *s) {
 
 void startSocket() {
     TCPSocket client = TCPSocket();
-    client.Create(AF_INET);
-    SockAddr addr("0.0.0.0", 9003);
+    client.Create();
+    SockAddr addr("192.168.57.1", 9109);
     bool con = client.Connect(addr);
     if (!con) {
         printf("Connect failed!");
