@@ -10,6 +10,7 @@
 #include <algorithm>
 #include "Socket.h"
 #include "cstdio"
+#include <stdarg.h>
 #include "string"
 #include "pthread.h"
 #include "map"
@@ -135,6 +136,7 @@ public:
         worldSize = sock.recvInt();
         jobId = sock.recvStr();
         cmd = sock.recvStr();
+        printf("Init SlaveEntry RECV: %d %d %s %s\n", rank, worldSize, jobId.data(), cmd.data());
     }
 
     int decide_rank(map<string, int> & jobMap) {
@@ -284,6 +286,7 @@ public:
         char p[50];
         sprintf(p, "%d", port);
         t["rabit_tracker_port"] = p;
+        printf("rabit_tracker_uri=%s rabit_tracker_port=%d\n", host.data(), port);
         return t;
     }
 
@@ -304,11 +307,20 @@ public:
 
     LinkMap getTree(int nSlave) {
         LinkMap linkMap;
+        printf("getTree ->%d\n", nSlave);
         for (int i = 0; i < nSlave; ++i) {
             linkMap.treeMap[i] = getNeighbor(i, nSlave);
             linkMap.parentMap[i] = (i + 1) / 2 - 1;
         }
         return linkMap;
+    }
+
+    void dumpSet(string msg, set<int> &s) {
+        printf("============%s===========\n", msg.data());
+        for (set<int>::iterator sit = s.begin(); sit != s.end(); ++sit) {
+            printf("%d ", *sit);
+        }
+        printf("\n");
     }
 
     vector<int> findShareRing(LinkMap &linkMap, int r) {
@@ -318,6 +330,10 @@ public:
         set<int> cSet;
         set_difference(nSet.begin(), nSet.end(), parentSet.begin(), parentSet.end(), inserter(cSet, cSet.begin()));
         vector<int> rlst;
+        dumpSet("nSet", nSet);
+        dumpSet("parentSet", parentSet);
+        dumpSet("cSet", cSet);
+        printf("findShareRing %d\n", r);
         if (cSet.size() == 0) {
             rlst.push_back(r);
             return rlst;
@@ -331,6 +347,7 @@ public:
                 reverse(vlst.begin(), vlst.end());
             }
             rlst.insert(rlst.end(), vlst.begin(), vlst.end());
+            ++iter;
         }
 
         return rlst;
@@ -340,7 +357,7 @@ public:
         map<int, pair<int, int> > ringMap;
         int nSlave = (int) linkMap.treeMap.size();
         vector<int> rlst = findShareRing(linkMap, 0);
-        printf("ASSET %d=%d", (int) rlst.size(), (int) linkMap.treeMap.size());
+        printf("ASSET %d=%d\n", (int) rlst.size(), (int) linkMap.treeMap.size());
         for (int i = 0; i < nSlave; ++i) {
             int rprev = (i + nSlave - 1) % nSlave;
             int rnext = (i + 1) % nSlave;
@@ -351,7 +368,38 @@ public:
 
     LinkMap getLinkMap(int nSlave) {
         LinkMap linkMap = getTree(nSlave);
+        printf("treeMap getTree %u\n", linkMap.treeMap.size());
+
+        printf("treeMap %lu\n", linkMap.treeMap.size());
+        // 0: [1, 2], 1: [0, 3, 4], 2: [0], 3: [1], 4: [1]
+        map<int, vector<int> > &treeMap = linkMap.treeMap;
+        for (int i = 0; i < treeMap.size(); ++i) {
+            printf("size: %lu\n", treeMap[i].size());
+            for (int j = 0; j < treeMap[i].size(); ++j) {
+                printf("%d ", treeMap[i][j]);
+            }
+            printf("\n");
+        }
+
+        printf("parentMap %lu\n", linkMap.parentMap.size());
+        //0: -1, 1: 0, 2: 0, 3: 1, 4: 1
+        map<int, int > &parentMap = linkMap.parentMap;
+        for (int i = 0; i < parentMap.size(); ++i) {
+                printf("%d ", parentMap[i]);
+        }
+        printf("\n");
+
         linkMap.ringMap = getRing(linkMap);
+        //0: (2, 1), 1: (0, 3), 2: (4, 0), 3: (1, 4), 4: (3, 2)
+        printf("ringMap %lu\n", linkMap.ringMap.size());
+        map<int, pair<int, int> > &ringMap = linkMap.ringMap;
+        printf("ringMap %lu\n", ringMap.size());
+        for (int i = 0; i < (int) ringMap.size(); ++i) {
+            printf("%lu %d(%d, %d) ", ringMap.size(), i, ringMap[i].first, ringMap[i].second);
+            if (i > 10) exit(0);
+        }
+        printf("\n");
+
         map<int, int> rmap;
         int k = 0;
         for (int i = 0; i < nSlave - 1; ++i) {
@@ -395,17 +443,18 @@ public:
         while (shutDown.size() != nSlave) {
             printf("Start Accept...\n");
             TCPSocket sc = sock.Accept();
+            printf("Accept Client %s:%d", sc.sAddr.AddrStr().data(), sc.sAddr.port());
             SlaveEntry* se = new SlaveEntry(sc);
             if (se->cmd.compare("print") == 0) {
                 string  msg = se->sock.recvStr();
-                log_print("Message from %s:%d : %s", se->host.data(), se->port, msg.data());
+                printf("Message from %s:%d : %s", se->host.data(), se->port, msg.data());
             } else if (se->cmd.compare("shutdown") == 0) {
                 shutDown[se->rank] = se;
             }
-            log_print("ASSERT: CMD Should be [start] or [recover]: %s", se->cmd.data());
+            printf("ASSERT: CMD Should be [start] or [recover]: %s\n", se->cmd.data());
 
             if (treeMap.size() == 0) {
-                log_print("ASSERT: CMD Should be [start]: %s", se->cmd.data());
+                printf("ASSERT: CMD Should be [start]: %s\n", se->cmd.data());
                 if (se->worldSize > 0) {
                     nSlave = se->worldSize;
                 }

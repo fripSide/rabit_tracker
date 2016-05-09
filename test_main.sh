@@ -1,5 +1,5 @@
 rm main
-g++ main.cpp -o main
+g++ main.cpp -o main -pthread
 
 ./main -n 2 -v 0 -r demo -u 10.11.53.64  test/basic.rabit 3
 

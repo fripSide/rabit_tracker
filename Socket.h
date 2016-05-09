@@ -294,8 +294,10 @@ namespace rabit {
                 if (newfd == INVALID_SOCKET) {
                     Socket::Error("Accept");
                 }
+
                 TCPSocket tcpSocket(newfd);
                 tcpSocket.sAddr.addr = addr;
+                printf("Get Addr %s:%d\n", sAddr.AddrStr().data(), sAddr.port());
                 return tcpSocket;
             }
             /*!
