@@ -1,6 +1,9 @@
 #include <iostream>
 #include <sstream>
 #include "rabit_tracker.h"
+#include <sys/types.h>
+#include <sys/wait.h>
+#include "pthread.h"
 
 
 // https://github.com/dmlc/rabit/blob/be50e7b63224b9fb7ff94ce34df9f8752ef83043/src/allreduce_base.cc#L57
@@ -94,8 +97,10 @@ void* mpiSubmit(void *args) {
     if (hostfile.empty()) {
         sprintf(cmd, "mpirun -n %d %s", nworks, executable);
     } else {
-        sprintf(cmd, "mpirun -n %d --hostfile %s %s", nworks, hostfile.data(), executable);
+        sprintf(cmd, "mpirun -n %d --hostfile %s %s ", nworks, hostfile.data(), executable);
     }
+    strcat(cmd, submitA->getArgs().data());
+    printf("==============>%s\n", submitA->getArgs().data());
     submitA->cmd = cmd;
     pthread_t pth;
     printf("start run... %s\n", submitA->cmd.data());
@@ -109,6 +114,10 @@ void* demoSubmit(void *args) {
     submitArgs* submitA = reinterpret_cast<submitArgs*>(args);
     strcat(executable, submitA->getArgs().c_str());
     submitA->cmd = executable;
+    vector<pthread_t> pts;
+    for (int i = 0; i < submitA->nSlave; ++i) {
+
+    }
     printf("==========EXE:%s\n", executable);
     char const *command = executable;
     sprintf(cmd2, echo, command);

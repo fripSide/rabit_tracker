@@ -17,6 +17,7 @@
 
 using namespace rabit::utils;
 using namespace std;
+using std::map;
 
 const bool LOG_TO_FILE = true;
 const bool LOG_TO_CONSOLE = true;
@@ -235,8 +236,6 @@ struct LinkMap {
     map<int, pair<int, int> > ringMap;
     map<int, int> parentMap;
 };
-
-class map;
 
 bool cmpSlave(SlaveEntry *s1, SlaveEntry *s2) { //<
     return s1->host.compare(s2->host) < 0;
