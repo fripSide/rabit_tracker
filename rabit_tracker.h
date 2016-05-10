@@ -66,7 +66,7 @@ void debug_print(const char *fmt,...) {
 }
 
 void log_print(const char *fmt,...) {
-    va_list ap;
+    /*va_list ap;
     va_start(ap, fmt);
     if (LOG_TO_FILE) {
         FILE* fp = fopen("tracker_log.txt","a");
@@ -78,7 +78,7 @@ void log_print(const char *fmt,...) {
         debug_print(fmt, ap);
         fflush(stdout);
     }
-    va_end(ap);
+    va_end(ap);*/
 }
 
 
@@ -91,6 +91,7 @@ public:
 
     int sendInt(int t) {
         size_t s = sock.SendAll(&t, sizeof t);
+        printf("sendInt %d %lu\n", t, s);
         return (int) s;
     }
 
@@ -99,6 +100,7 @@ public:
         size_t t = strlen(s);
         sendInt((int) t);
         sock.SendAll(s, t);
+        printf("sendStr %s %lu\n", str.data(), t);
         return (int) t;
     }
 
@@ -140,6 +142,7 @@ public:
     }
 
     int decide_rank(map<string, int> & jobMap) {
+        printf("Decide Rank: %d\n", rank);
         if (rank >= 0) {
             return rank;
         }
@@ -149,11 +152,20 @@ public:
         return -1;
     }
 
+    void dumpSet(string msg, set<int> &s) {
+        printf("============%s===========\n", msg.data());
+        for (set<int>::iterator sit = s.begin(); sit != s.end(); ++sit) {
+            printf("%d ", *sit);
+        }
+        printf("\n");
+    }
+
     vector<int> assign_rank(int rank, map<int, SlaveEntry*> &waitConn, map<int, vector<int> > &treeMap, map<int, int> & parentMap, map<int, pair<int, int> > &ringMap) {
         this->rank = rank;
         set<int> nnSet = set<int>(treeMap[rank].begin(), treeMap[rank].end());
         int rprev = ringMap[rank].first, rnext = ringMap[rank].second;
-
+        printf("Start Assign Rank: %d %d:%d\n", rank, rprev, rnext);
+        printf("send %d %lu %lu\n" ,parentMap[rank], treeMap.size(), nnSet.size());
         sock.sendInt(rank);
         sock.sendInt(parentMap[rank]);
         sock.sendInt((int) treeMap.size());
@@ -184,26 +196,38 @@ public:
                 goodSet.insert(sock.recvInt());
             }
             set<int> badSet;
-            set_intersection(nnSet.begin(), nnSet.end(), goodSet.begin(), goodSet.end(), inserter(badSet, badSet.begin()));
+            set_difference(nnSet.begin(), nnSet.end(), goodSet.begin(), goodSet.end(), inserter(badSet, badSet.begin()));
+
+            dumpSet("nnSet", nnSet);
+            dumpSet("goodSet", goodSet);
+            dumpSet("badSet", badSet);
 
             vector<int> conSet;
             for (set<int>::iterator iter = badSet.begin(); iter != badSet.end(); ++iter) {
-                if (waitConn[*iter] != NULL) {
+                map<int, SlaveEntry*>::iterator wit = waitConn.find(*iter);
+                if (wit != waitConn.end()) {
                     conSet.push_back(*iter);
                 }
             }
+            printf("conSet Size: %lu", conSet.size());
             sock.sendInt((int) conSet.size());
             int left = ((int) badSet.size()) - (int) conSet.size();
             sock.sendInt(left);
 
             for (int i = 0; i < conSet.size(); ++i) {
-                sock.sendStr(waitConn[conSet[i]]->hostIp);
+                printf("send conSet:%d  %s:%d\n", conSet[i], waitConn[conSet[i]]->host.data(), waitConn[conSet[i]]->port);
+                sock.sendStr(waitConn[conSet[i]]->host);
                 sock.sendInt(waitConn[conSet[i]]->port);
                 sock.sendInt(conSet[i]);
             }
             int nErr = sock.recvInt();
-            if (nErr != 0) continue;
-            port = sock.recvInt();
+            if (nErr != 0) {
+                printf("ERROR:  %d\n", nErr);
+                continue;
+            }
+            int p = sock.recvInt();
+            printf("renew port old:%d new:%d\n", port, p);
+            port = p;
             vector<int> rmSet;
             for (int i = 0; i < conSet.size(); ++i) {
                 int r = conSet[i];
@@ -213,7 +237,7 @@ public:
             for (int i = 0; i < rmSet.size(); ++i) {
                 map<int, SlaveEntry*>::iterator iter = waitConn.find(rmSet[i]);
                 waitConn.erase(iter);
-                delete iter->second;
+                //delete iter->second;
             }
             waitAccept = ((int) badSet.size()) - (int) conSet.size();
             return rmSet;
@@ -237,6 +261,33 @@ struct LinkMap {
     map<int, vector<int> > treeMap;
     map<int, pair<int, int> > ringMap;
     map<int, int> parentMap;
+    void dump() {
+        printf("treeMap %lu\n", treeMap.size());
+        // 0: [1, 2], 1: [0, 3, 4], 2: [0], 3: [1], 4: [1]
+        for (int i = 0; i < treeMap.size(); ++i) {
+            printf("%d :[", i);
+            for (int j = 0; j < treeMap[i].size(); ++j) {
+                printf("%d, ", treeMap[i][j]);
+            }
+            printf("], ");
+        }
+        printf("\n");
+
+        printf("ringMap %lu\n", ringMap.size());
+        map<int, pair<int, int> >::iterator rit = ringMap.begin();
+        while (rit != ringMap.end()) {
+            printf("%lu: %d(%d, %d), ", ringMap.size(), rit->first, rit->second.first, rit->second.second);
+            ++rit;
+        }
+        printf("\n");
+
+        printf("parentMap %lu\n", parentMap.size());
+        //0: -1, 1: 0, 2: 0, 3: 1, 4: 1
+        for (int i = 0; i < parentMap.size(); ++i) {
+            printf("%d: %d, ", i, parentMap[i]);
+        }
+        printf("\n");
+    }
 };
 
 bool cmpSlave(SlaveEntry *s1, SlaveEntry *s2) { //<
@@ -286,7 +337,6 @@ public:
         char p[50];
         sprintf(p, "%d", port);
         t["rabit_tracker_port"] = p;
-        printf("rabit_tracker_uri=%s rabit_tracker_port=%d\n", host.data(), port);
         return t;
     }
 
@@ -307,20 +357,11 @@ public:
 
     LinkMap getTree(int nSlave) {
         LinkMap linkMap;
-        printf("getTree ->%d\n", nSlave);
         for (int i = 0; i < nSlave; ++i) {
             linkMap.treeMap[i] = getNeighbor(i, nSlave);
             linkMap.parentMap[i] = (i + 1) / 2 - 1;
         }
         return linkMap;
-    }
-
-    void dumpSet(string msg, set<int> &s) {
-        printf("============%s===========\n", msg.data());
-        for (set<int>::iterator sit = s.begin(); sit != s.end(); ++sit) {
-            printf("%d ", *sit);
-        }
-        printf("\n");
     }
 
     vector<int> findShareRing(LinkMap &linkMap, int r) {
@@ -330,12 +371,8 @@ public:
         set<int> cSet;
         set_difference(nSet.begin(), nSet.end(), parentSet.begin(), parentSet.end(), inserter(cSet, cSet.begin()));
         vector<int> rlst;
-        dumpSet("nSet", nSet);
-        dumpSet("parentSet", parentSet);
-        dumpSet("cSet", cSet);
-        printf("findShareRing %d\n", r);
+        rlst.push_back(r);
         if (cSet.size() == 0) {
-            rlst.push_back(r);
             return rlst;
         }
         int cnt = 0;
@@ -357,7 +394,7 @@ public:
         map<int, pair<int, int> > ringMap;
         int nSlave = (int) linkMap.treeMap.size();
         vector<int> rlst = findShareRing(linkMap, 0);
-        printf("ASSET %d=%d\n", (int) rlst.size(), (int) linkMap.treeMap.size());
+        printf("ASSET getRing %d=%d", (int) rlst.size(), (int) linkMap.treeMap.size());
         for (int i = 0; i < nSlave; ++i) {
             int rprev = (i + nSlave - 1) % nSlave;
             int rnext = (i + 1) % nSlave;
@@ -368,38 +405,9 @@ public:
 
     LinkMap getLinkMap(int nSlave) {
         LinkMap linkMap = getTree(nSlave);
-        printf("treeMap getTree %u\n", linkMap.treeMap.size());
-
-        printf("treeMap %lu\n", linkMap.treeMap.size());
-        // 0: [1, 2], 1: [0, 3, 4], 2: [0], 3: [1], 4: [1]
-        map<int, vector<int> > &treeMap = linkMap.treeMap;
-        for (int i = 0; i < treeMap.size(); ++i) {
-            printf("size: %lu\n", treeMap[i].size());
-            for (int j = 0; j < treeMap[i].size(); ++j) {
-                printf("%d ", treeMap[i][j]);
-            }
-            printf("\n");
-        }
-
-        printf("parentMap %lu\n", linkMap.parentMap.size());
-        //0: -1, 1: 0, 2: 0, 3: 1, 4: 1
-        map<int, int > &parentMap = linkMap.parentMap;
-        for (int i = 0; i < parentMap.size(); ++i) {
-                printf("%d ", parentMap[i]);
-        }
-        printf("\n");
-
         linkMap.ringMap = getRing(linkMap);
-        //0: (2, 1), 1: (0, 3), 2: (4, 0), 3: (1, 4), 4: (3, 2)
-        printf("ringMap %lu\n", linkMap.ringMap.size());
-        map<int, pair<int, int> > &ringMap = linkMap.ringMap;
-        printf("ringMap %lu\n", ringMap.size());
-        for (int i = 0; i < (int) ringMap.size(); ++i) {
-            printf("%lu %d(%d, %d) ", ringMap.size(), i, ringMap[i].first, ringMap[i].second);
-            if (i > 10) exit(0);
-        }
-        printf("\n");
-
+        printf("---------------\nLinkMap Raw\n");
+        linkMap.dump();
         map<int, int> rmap;
         int k = 0;
         for (int i = 0; i < nSlave - 1; ++i) {
@@ -415,7 +423,7 @@ public:
         for (map<int, vector<int> >::iterator tit = linkMap.treeMap.begin(); tit != linkMap.treeMap.end(); ++tit) {
             vector<int> &val = tit->second;
             for (int i = 0; i < val.size(); ++i) {
-                lMap.treeMap[rmap[tit->first]].push_back(rmap[i]);
+                lMap.treeMap[rmap[tit->first]].push_back(rmap[val[i]]);
             }
         }
         for (map<int, int>::iterator pit = linkMap.parentMap.begin(); pit != linkMap.parentMap.end(); ++pit) {
@@ -425,8 +433,25 @@ public:
                 lMap.parentMap[rmap[pit->first]] = -1;
             }
         }
-
+        printf("---------------\nLinkMap After\n");
+        lMap.dump();
         return lMap;
+    }
+
+    void dumpCon(map<int, SlaveEntry*> & waitConn) {
+        map<int, SlaveEntry*>::iterator wit = waitConn.begin();
+        printf("\ndump waitConn: %lu\n", waitConn.size());
+        for (; wit != waitConn.end(); ++wit) {
+            printf("%d jobId:%s %s:%d\n", wit->first, wit->second->jobId.data(), wit->second->host.data(), wit->second->port);
+        }
+    }
+
+    void dumpPending(vector<SlaveEntry *> &pending) {
+        vector<SlaveEntry *>::iterator pit = pending.begin();
+        printf("\ndump pending\n");
+        for (; pit != pending.end(); ++pit) {
+            printf("jobId:%s %s:%d\n", (*pit)->jobId.data(), (*pit)->host.data(), (*pit)->port);
+        }
     }
 
     void acceptSlaves(int nSlave) {
@@ -441,15 +466,18 @@ public:
         vector<SlaveEntry*> pending;
         map<int, SlaveEntry*> waitConn;
         while (shutDown.size() != nSlave) {
-            printf("Start Accept...\n");
+            printf("============\nStart Accept...\n==========\n");
             TCPSocket sc = sock.Accept();
-            printf("Accept Client %s:%d", sc.sAddr.AddrStr().data(), sc.sAddr.port());
+            printf("Accept suc\n");
+            printf("Accept Client %s:%d\n", sc.sAddr.AddrStr().data(), sc.sAddr.port());
             SlaveEntry* se = new SlaveEntry(sc);
+            printf("Init Finish:%d %s\n", se->cmd.compare("print"), se->cmd.data());
             if (se->cmd.compare("print") == 0) {
                 string  msg = se->sock.recvStr();
-                printf("Message from %s:%d : %s", se->host.data(), se->port, msg.data());
+                printf("Message from %s:%d : %s\n", se->host.data(), se->port, msg.data());
             } else if (se->cmd.compare("shutdown") == 0) {
                 shutDown[se->rank] = se;
+                continue;
             }
             printf("ASSERT: CMD Should be [start] or [recover]: %s\n", se->cmd.data());
 
@@ -458,41 +486,55 @@ public:
                 if (se->worldSize > 0) {
                     nSlave = se->worldSize;
                 }
+                printf("Before NSalve %d\n", nSlave);
                 LinkMap linkMap = getLinkMap(nSlave);
+                printf("NSalve %d\n", nSlave);
                 treeMap = linkMap.treeMap;
-                for (int i = 0; i < nSlave; ++i) todoNodes.push_back(i);
+                parentMap = linkMap.parentMap;
+                ringMap = linkMap.ringMap;
+                for (int i = 0; i < nSlave; ++i) todoNodes.push_back(nSlave - i - 1);
             } else {
-                printf("ASSERT: World SIZE: %d == nSlave: %d", se->worldSize, nSlave);
+                printf("ASSERT: World SIZE: %d == nSlave: %d\n", se->worldSize, nSlave);
             }
 
             if (se->cmd.compare("recover") == 0) {
-                printf("ASSERT: rank = %d > 0", se->rank);
+                printf("ASSERT: rank = %d > 0\n", se->rank);
             }
+            //printf("Get Link Map %d\n", treeMap.size());
             int rank = se->decide_rank(jobMap);
+            printf("After Decide rank:%d\n", rank);
             if (rank == -1) {
                 pending.push_back(se);
                 if (pending.size() == todoNodes.size()) {
+                    printf("pending %lu todoNodes %lu\n", pending.size(), todoNodes.size());
                     sort(pending.begin(), pending.end(), cmpSlave);
-                }
-                for (int i = 0; i < pending.size(); ++i) {
-                    int rank = todoNodes.back();
-                    todoNodes.pop_back();
-                    if (se->jobId.compare("NULL") != 0) {
-                        jobMap[se->jobId] = rank;
+                    dumpPending(pending);
+                    for (int i = 0; i < pending.size(); ++i) {
+                        SlaveEntry* s = pending[i];
+                        int rank = todoNodes.back();
+                        todoNodes.pop_back();
+                        if (s->jobId.compare("NULL") != 0) {
+                            jobMap[s->jobId] = rank;
+                        }
+                        //printf("Start Assign Ranka\n");
+                        dumpCon(waitConn);
+                        s->assign_rank(rank, waitConn, treeMap, parentMap, ringMap);
+                        printf("After Assign Rank: %d\n", rank);
+                        if (s->waitAccept > 0) {
+                            printf("Accept: %d Put To WaitConn: rank: %d jobId:%s %s:%d\n", s->waitAccept, rank, s->jobId.data(), s->host.data(), s->port);
+                            waitConn[rank] = s;
+                        }
+                        printf("Recieve %s signal from %s; assign rank %d\n", se->cmd.data(), se->host.data(), se->rank);
                     }
-                    se->assign_rank(rank, waitConn, treeMap, parentMap, ringMap);
-                    if (se->waitAccept > 0) {
-                        waitConn[rank] = se;
-                    }
-                    log_print("Recieve %s signal from %s; assign rank %d", se->cmd.data(), se->host.data(), se->rank);
                 }
                 if (todoNodes.size() == 0) {
-                    log_print("@tracker All of %d nodes getting started", nSlave);
+                    printf("@tracker All of %d nodes getting started\n", nSlave);
                     startTime = clock();
                 }
             } else {
+                printf("Before Assign: %d\n", rank);
                 se->assign_rank(rank, waitConn, treeMap, parentMap, ringMap);
-                log_print("Recieve %s signal from %d", se->cmd.data(), se->rank);
+                printf("Else Recieve %s signal from %d\n", se->cmd.data(), se->rank);
                 if (se->waitAccept > 0) {
                     waitConn[rank] = se;
                 }
